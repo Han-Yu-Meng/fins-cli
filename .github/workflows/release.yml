@@ -50,22 +50,31 @@ jobs:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # 显式声明权限
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           merge-multiple: true
 
-      - name: Check files
+      - name: ls files
         run: ls -lh
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
+          # 显式传递 TOKEN
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # 修改为确切的文件名，避免通配符解析失败
           files: |
-            fins-*
-            finsd-*
+            fins-linux-amd64
+            fins-linux-arm64
+            finsd-linux-amd64
+            finsd-linux-arm64
           generate_release_notes: true
+          # 强制如果找不到文件就报错，方便我们排查
+          fail_on_unmatched_files: true
           draft: false
           prerelease: false
