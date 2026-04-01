@@ -56,14 +56,20 @@ func (pw *PackageWatcher) Start() {
 func (pw *PackageWatcher) setupWatchers() {
 	pw.mutex.Lock()
 	pkgs, _ := core.ScanPackages()
-	for k, p := range pkgs {
-		pw.cache[k] = p
-	}
+	pw.cache = pkgs
 	pw.mutex.Unlock()
 
-	searchPaths := viper.GetStringSlice("package_search_paths")
-	for _, root := range searchPaths {
-		filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+	// Watch Local Workspace Roots
+	type LocalSource struct {
+		Name string `mapstructure:"name"`
+		Path string `mapstructure:"path"`
+	}
+	var localSources []LocalSource
+	_ = viper.UnmarshalKey("local_packages", &localSources)
+
+	for _, src := range localSources {
+		root := src.Path
+		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				return nil
 			}
@@ -71,7 +77,7 @@ func (pw *PackageWatcher) setupWatchers() {
 				if strings.HasPrefix(d.Name(), ".") && d.Name() != "." {
 					return filepath.SkipDir
 				}
-				pw.watcher.Add(path)
+				_ = pw.watcher.Add(path)
 			}
 			return nil
 		})

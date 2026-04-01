@@ -3,6 +3,7 @@ package handlers
 import (
 	"compress/gzip"
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,6 +13,7 @@ import (
 	"finsd/internal/types"
 
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 )
 
 // GetPackages 获取所有包列表
@@ -162,6 +164,10 @@ func GetPackageLog(c *gin.Context) {
 
 // TriggerScan 触发包扫描
 func TriggerScan(c *gin.Context) {
+	// 重新加载配置
+	if err := viper.ReadInConfig(); err != nil {
+		log.Printf("Failed to reload config during scan: %v", err)
+	}
 	PackageWatcher.Rescan()
 	c.JSON(200, gin.H{"message": "Package scan triggered"})
 }
