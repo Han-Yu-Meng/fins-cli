@@ -45,13 +45,6 @@ if [ "$EUID" -ne 0 ]; then
   sudo -v
 fi
 
-# 2.5 Stop and Cleanup existing finsd
-log_info "Stopping existing finsd service and processes..."
-if systemctl is-active --quiet finsd; then
-    sudo systemctl stop finsd
-    log_info "finsd service stopped."
-fi
-
 if pgrep -x "finsd" > /dev/null; then
     sudo pkill -9 -x "finsd"
     log_info "Terminated active finsd processes."
@@ -132,63 +125,15 @@ sudo chown -R "$REAL_USER":"$REAL_USER" "$FINS_DIR"
 
 log_success "Configuration files download complete."
 
-# 6. Configure systemd background service
-log_info "Configuring finsd systemd service to start on boot..."
-
-# Check if systemd is available
-if ! systemctl status --no-pager &>/dev/null && [ "$?" -ne 0 ]; then
-    log_warn "systemd is not available (common in WSL without systemd enabled)."
-    log_warn "Skipping systemd service configuration."
-    log_info "You can start the daemon manually by running: finsd &"
-    HAS_SYSTEMD="false"
-else
-    SYSTEMD_FILE="/etc/systemd/system/finsd.service"
-
-    sudo bash -c "cat > $SYSTEMD_FILE" <<EOF
-[Unit]
-Description=FINS Daemon Service
-After=network.target
-
-[Service]
-Type=simple
-User=$REAL_USER
-Group=$REAL_USER
-WorkingDirectory=$REAL_HOME
-ExecStart=/usr/local/bin/finsd
-Restart=always
-RestartSec=3
-Environment="HOME=$REAL_HOME"
-Environment="USER=$REAL_USER"
-Environment="LANG=en_US.UTF-8"
-Environment="LC_ALL=en_US.UTF-8"
-Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    # Reload systemd and start the service
-    sudo systemctl daemon-reload
-    sudo systemctl enable finsd
-    sudo systemctl restart finsd
-    log_success "finsd service configured and started."
-    HAS_SYSTEMD="true"
-fi
-
-# 7. Final Tips
+echo ""
+# 6. Final Tips
 echo ""
 echo -e "${GREEN}======================================================================${NC}"
 echo -e "${GREEN}  🎉 FINS Installation Complete!${NC}"
 echo -e "${GREEN}======================================================================${NC}"
 echo ""
-
-if [ "$HAS_SYSTEMD" = "true" ]; then
-    echo -e "The background daemon ${YELLOW}finsd${NC} is running. You can check its status with:"
-    echo -e "  ${BLUE}systemctl status finsd${NC}"
-else
-    echo -e "${YELLOW}[Notice]${NC} systemd not found. Please start the daemon manually:"
-    echo -e "  ${BLUE}nohup finsd > /dev/null 2>&1 &${NC}"
-fi
+echo -e "To start the background daemon ${YELLOW}finsd${NC}, please run:"
+echo -e "  ${BLUE}nohup finsd > /dev/null 2>&1 &${NC}"
 echo ""
 echo -e "${RED}[Important Next Steps]${NC}"
 echo -e "To use Agent and Inspect features correctly, please run the following commands to compile internal tools:"

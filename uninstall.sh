@@ -33,23 +33,11 @@ if [ "$EUID" -ne 0 ]; then
   sudo -v
 fi
 
-# 3. Stop and remove systemd service
-log_info "Stopping and disabling finsd service..."
-if systemctl is-active --quiet finsd; then
-    sudo systemctl stop finsd
-    log_info "finsd service stopped."
-fi
-
-if systemctl is-enabled --quiet finsd; then
-    sudo systemctl disable finsd
-    log_info "finsd service disabled."
-fi
-
-SYSTEMD_FILE="/etc/systemd/system/finsd.service"
-if [ -f "$SYSTEMD_FILE" ]; then
-    sudo rm "$SYSTEMD_FILE"
-    sudo systemctl daemon-reload
-    log_info "systemd service file removed."
+# 3. Stop existing finsd processes
+log_info "Stopping finsd processes..."
+if pgrep -x "finsd" > /dev/null; then
+    sudo pkill -9 -x "finsd"
+    log_info "finsd processes terminated."
 fi
 
 # 4. Remove binaries

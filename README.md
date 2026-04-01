@@ -32,14 +32,6 @@ To install FINS CLI, run the provided installation script:
 curl -fsSL https://raw.githubusercontent.com/Han-Yu-Meng/fins-cli/main/install.sh | sudo bash
 ```
 
-## Getting Started
-
-After installation, you can verify if the daemon is running:
-
-```bash
-systemctl status finsd
-```
-
 ### Build Internal Tools
 
 For the first time, you need to build the necessary tools for Agent and Inspect functionality:
