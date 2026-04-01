@@ -6,6 +6,8 @@ GITHUB_USER="Han-Yu-Meng"
 GITHUB_REPO="fins-cli"
 BRANCH="main"
 
+GH_PROXY="https://ghp.ci/"
+
 # Define color output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -57,14 +59,18 @@ if [ "$RATE_LIMITED" = "true" ] || echo "$LATEST_RELEASE" | grep -q "Not Found" 
     log_warn "API rate limited or latest stable release not found. Attempting to use static 'latest' tag URLs..."
     
     # Define fallback URLs directly based on your naming convention in release.yml
-    FINS_URL="https://github.com/$GITHUB_USER/$GITHUB_REPO/releases/download/latest/fins-linux-amd64"
-    FINSD_URL="https://github.com/$GITHUB_USER/$GITHUB_REPO/releases/download/latest/finsd-linux-amd64"
+    FINS_URL="${GH_PROXY}https://github.com/$GITHUB_USER/$GITHUB_REPO/releases/download/latest/fins-linux-amd64"
+    FINSD_URL="${GH_PROXY}https://github.com/$GITHUB_USER/$GITHUB_REPO/releases/download/latest/finsd-linux-amd64"
     
     log_info "Attempting direct download from: $FINS_URL"
 else
     # Parse download links
     FINS_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[]? | select(.name | test("fins-linux-amd64|fins$")) | .browser_download_url' | head -n 1)
     FINSD_URL=$(echo "$LATEST_RELEASE" | jq -r '.assets[]? | select(.name | test("finsd-linux-amd64|finsd$")) | .browser_download_url' | head -n 1)
+
+    # Prefix with proxy
+    FINS_URL="${GH_PROXY}${FINS_URL}"
+    FINSD_URL="${GH_PROXY}${FINSD_URL}"
 fi
 
 if [ -z "$FINS_URL" ] || [ -z "$FINSD_URL" ]; then
@@ -89,8 +95,8 @@ log_info "Configuring default files to $FINS_DIR ..."
 sudo -u "$REAL_USER" mkdir -p "$FINS_DIR"
 sudo -u "$REAL_USER" mkdir -p "$FINS_DIR/logs"
 
-CONFIG_URL="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$BRANCH/default/config.yaml"
-RECIPE_URL="https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$BRANCH/default/recipes.yaml"
+CONFIG_URL="${GH_PROXY}https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$BRANCH/default/config.yaml"
+RECIPE_URL="${GH_PROXY}https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_REPO/$BRANCH/default/recipes.yaml"
 
 sudo -u "$REAL_USER" curl -sL "$CONFIG_URL" -o "$FINS_DIR/config.yaml"
 sudo -u "$REAL_USER" curl -sL "$RECIPE_URL" -o "$FINS_DIR/recipes.yaml"
