@@ -4,6 +4,7 @@ package commands
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,6 +59,20 @@ var workspaceAddCmd = &cobra.Command{
 		}
 
 		utils.LogSuccess(os.Stdout, "Workspace '%s' added at %s", name, absPath)
+
+		// 自动触发扫描
+		url := fmt.Sprintf("%s/api/scan", DaemonURL)
+		resp, err := http.Post(url, "application/json", nil)
+		if err != nil {
+			utils.LogWarning(os.Stdout, "Added workspace, but failed to notify daemon for rescan: %v", err)
+		} else {
+			defer resp.Body.Close()
+			if resp.StatusCode == 200 {
+				utils.LogSuccess(os.Stdout, "Daemon triggered automatic scan.")
+			} else {
+				utils.LogWarning(os.Stdout, "Daemon returned %d on scan request.", resp.StatusCode)
+			}
+		}
 	},
 }
 
