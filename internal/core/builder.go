@@ -245,11 +245,32 @@ endif()
 	args = append(args, cmakeArgs...)
 
 	if _, err := exec.LookPath("mold"); err == nil {
-		args = append(args,
-			"-DCMAKE_EXE_LINKER_FLAGS=-B/usr/local/libexec/mold",
-			"-DCMAKE_SHARED_LINKER_FLAGS=-B/usr/local/libexec/mold",
-			"-DCMAKE_MODULE_LINKER_FLAGS=-B/usr/local/libexec/mold",
-		)
+		useFuseLd := false
+		if out, err := exec.Command("gcc", "-dumpversion").Output(); err == nil {
+			major := strings.Split(strings.TrimSpace(string(out)), ".")[0]
+			if major >= "10" {
+				useFuseLd = true
+			}
+		}
+
+		if useFuseLd {
+			args = append(args,
+				"-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold",
+				"-DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=mold",
+				"-DCMAKE_MODULE_LINKER_FLAGS=-fuse-ld=mold",
+			)
+		} else {
+			moldLibexec := "/usr/libexec/mold"
+			if _, err := os.Stat(moldLibexec); os.IsNotExist(err) {
+				moldLibexec = "/usr/local/libexec/mold"
+			}
+			flag := fmt.Sprintf("-B%s", moldLibexec)
+			args = append(args,
+				fmt.Sprintf("-DCMAKE_EXE_LINKER_FLAGS=%s", flag),
+				fmt.Sprintf("-DCMAKE_SHARED_LINKER_FLAGS=%s", flag),
+				fmt.Sprintf("-DCMAKE_MODULE_LINKER_FLAGS=%s", flag),
+			)
+		}
 	}
 
 	// 1. 使用 LogSection 打印 FINS 标题
@@ -359,7 +380,23 @@ endif()
 	}
 
 	if _, err := exec.LookPath("mold"); err == nil {
-		args = append(args, "-DCMAKE_EXE_LINKER_FLAGS=-B/usr/local/libexec/mold")
+		useFuseLd := false
+		if out, err := exec.Command("gcc", "-dumpversion").Output(); err == nil {
+			major := strings.Split(string(out), ".")[0]
+			if major >= "10" {
+				useFuseLd = true
+			}
+		}
+
+		if useFuseLd {
+			args = append(args, "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold")
+		} else {
+			moldLibexec := "/usr/libexec/mold"
+			if _, err := os.Stat(moldLibexec); os.IsNotExist(err) {
+				moldLibexec = "/usr/local/libexec/mold"
+			}
+			args = append(args, fmt.Sprintf("-DCMAKE_EXE_LINKER_FLAGS=-B%s", moldLibexec))
+		}
 	}
 
 	utils.LogSection(writer, "Configuring %s (Type: %s)", name, buildType)
