@@ -13,7 +13,7 @@ permissions:
 jobs:
   build:
     name: Build Binaries
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
     strategy:
       matrix:
         goos: [linux]
@@ -34,12 +34,12 @@ jobs:
 
       - name: Build fins (CLI)
         run: |
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 \
           go build -ldflags="-s -w" -o dist/fins-${{ matrix.goos }}-${{ matrix.goarch }} cmd/fins/main.go
 
       - name: Build finsd (Daemon)
         run: |
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 \
           go build -ldflags="-s -w" -o dist/finsd-${{ matrix.goos }}-${{ matrix.goarch }} cmd/finsd/main.go
 
       - name: Upload artifacts
