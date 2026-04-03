@@ -4,10 +4,7 @@ build:
         build_jobs: 8
         build_output: ~/.fins/install
         cmake_generator: Ninja
-        enable_native_arch: true
-        linker: auto
         sdk_path: ~/FineVision/sdk
-        verbose: false
     presets:
         dev:
             description: Development mode
@@ -19,7 +16,6 @@ build:
             description: Release mode
             build_type: Release
             sanitize: none
-            verbose: true
         simulate:
             description: Simulation mode
             build_type: RelWithDebInfo
