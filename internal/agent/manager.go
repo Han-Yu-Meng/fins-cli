@@ -49,7 +49,7 @@ var GlobalManager = &AgentManager{
 	agents: make(map[string]*AgentInstance),
 }
 
-func (m *AgentManager) Start(cfg AgentConfig) error {
+func (m *AgentManager) Start(cfg AgentConfig, debug bool, stdout *os.File) error {
 	if cfg.AgentName == "" {
 		return fmt.Errorf("agent_name is required")
 	}
@@ -81,7 +81,7 @@ func (m *AgentManager) Start(cfg AgentConfig) error {
 	}
 	m.mu.Unlock()
 
-	return instance.Start(cfg)
+	return instance.Start(cfg, debug, stdout)
 }
 
 func (m *AgentManager) Stop(name string) error {
@@ -133,7 +133,7 @@ func (m *AgentManager) GetAllStatus() map[string]struct {
 	return result
 }
 
-func (ag *AgentInstance) Start(cfg AgentConfig) error {
+func (ag *AgentInstance) Start(cfg AgentConfig, debug bool, stdout *os.File) error {
 	ag.mu.Lock()
 	defer ag.mu.Unlock()
 
@@ -147,7 +147,7 @@ func (ag *AgentInstance) Start(cfg AgentConfig) error {
 	}
 
 	binDir := viper.GetString("build.defaults.build_output")
-	agentBin := filepath.Join(binDir, "agent")
+	agentBin := utils.ExpandPath(filepath.Join(binDir, "agent"))
 	if _, err := os.Stat(agentBin); os.IsNotExist(err) {
 		return fmt.Errorf("agent binary not found at %s. Please compile it first", agentBin)
 	}
@@ -161,6 +161,7 @@ func (ag *AgentInstance) Start(cfg AgentConfig) error {
 		"--name", cfg.AgentName,
 		"--ip", cfg.AgentIP,
 		"--port", fmt.Sprintf("%d", cfg.AgentPort),
+		"--load-all",
 	}
 
 	webUrl := viper.GetString("webui.host")
@@ -171,7 +172,7 @@ func (ag *AgentInstance) Start(cfg AgentConfig) error {
 
 	for _, p := range cfg.Plugins {
 		soName := fmt.Sprintf("lib%s_%s.so", p.Source, p.Name)
-		soPath := filepath.Join(binDir, soName)
+		soPath := utils.ExpandPath(filepath.Join(binDir, soName))
 		if _, err := os.Stat(soPath); err == nil {
 			args = append(args, "--plugin", soPath)
 		} else {
@@ -179,22 +180,36 @@ func (ag *AgentInstance) Start(cfg AgentConfig) error {
 		}
 	}
 
-	logPath := filepath.Join(utils.GetLogDir(), fmt.Sprintf("agent_%s.log", ag.Name))
-
-	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open log file: %v", err)
+	var cmd *exec.Cmd
+	if debug {
+		gdbArgs := append([]string{"-ex", "run", "--args", agentBin}, args...)
+		cmd = exec.Command("gdb", gdbArgs...)
+	} else {
+		cmd = exec.Command(agentBin, args...)
 	}
-	ag.logFile = f
 
-	cmd := exec.Command(agentBin, args...)
-	cmd.Stdout = f
-	cmd.Stderr = f
+	if stdout != nil {
+		ag.logFile = nil
+		cmd.Stdout = stdout
+		cmd.Stderr = stdout
+	} else {
+		logPath := filepath.Join(utils.GetLogDir(), fmt.Sprintf("agent_%s.log", ag.Name))
+		f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			return fmt.Errorf("failed to open log file: %v", err)
+		}
+		ag.logFile = f
+		cmd.Stdout = f
+		cmd.Stderr = f
+	}
+
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	utils.LogSection(os.Stdout, "[%s] Starting agent: %v", ag.Name, args)
+	utils.LogSection(os.Stdout, "[%s] Starting agent (debug=%v): %v", ag.Name, debug, cmd.Args)
 	if err := cmd.Start(); err != nil {
-		f.Close()
+		if ag.logFile != nil {
+			ag.logFile.Close()
+		}
 		return err
 	}
 
@@ -237,24 +252,10 @@ func (ag *AgentInstance) Stop() error {
 	proc := ag.cmd.Process
 	ag.mu.Unlock()
 
-	if err := syscall.Kill(-proc.Pid, syscall.SIGINT); err != nil {
-		if err := proc.Signal(os.Interrupt); err != nil {
-			return nil
-		}
+	utils.LogWarning(os.Stdout, "[%s] Force killing agent process group (PGID: %d)", ag.Name, proc.Pid)
+	if err := syscall.Kill(-proc.Pid, syscall.SIGKILL); err != nil {
+		return proc.Kill()
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		ag.mu.Lock()
-		running := ag.isRunning
-		ag.mu.Unlock()
-
-		if !running {
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	utils.LogWarning(os.Stdout, "[%s] Stop timed out, force killing process group (PGID: %d)", ag.Name, proc.Pid)
-	return syscall.Kill(-proc.Pid, syscall.SIGKILL)
+	return nil
 }

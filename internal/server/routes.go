@@ -25,6 +25,8 @@ func SetupRoutes(r *gin.Engine) {
 
 	// Agent 管理 API
 	r.POST("/api/agent/start", handlers.StartAgent)
+	r.POST("/api/agent/run", handlers.RunAgent)
+	r.POST("/api/agent/debug", handlers.DebugAgent)
 	r.POST("/api/agent/stop", handlers.StopAgent)
 	r.GET("/api/agent/status", handlers.GetAgentStatus)
 	r.GET("/api/agent/logs", handlers.GetAgentLogs)
