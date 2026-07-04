@@ -339,7 +339,11 @@ func CompilePackageStream(ctx context.Context, pkgName string, rawWriter io.Writ
 	sdkPath := utils.ExpandPath(viper.GetString("build.defaults.sdk_path"))
 	binDir := utils.ExpandPath(viper.GetString("build.defaults.build_output"))
 
-	buildDir := filepath.Join(pkg.Path, "build")
+	workspaceRoot := findWorkspaceRoot(pkg.Path)
+	if workspaceRoot == "" {
+		workspaceRoot = filepath.Dir(pkg.Path)
+	}
+	buildDir := filepath.Join(workspaceRoot, "build", pkg.Meta.Name)
 	if err := os.MkdirAll(buildDir, 0755); err != nil {
 		return fmt.Errorf("failed to create build directory: %v", err)
 	}
@@ -714,10 +718,20 @@ func CleanAllBuilds() error {
 }
 
 func cleanPackageBuildDir(pkg *types.Package) {
-	buildPath := filepath.Join(pkg.Path, "build")
-	if _, err := os.Stat(buildPath); err == nil {
-		utils.LogSection(os.Stdout, "Cleaning %s", buildPath)
-		os.RemoveAll(buildPath)
+	workspaceRoot := findWorkspaceRoot(pkg.Path)
+	if workspaceRoot == "" {
+		workspaceRoot = filepath.Dir(pkg.Path)
+	}
+	newBuildPath := filepath.Join(workspaceRoot, "build", pkg.Meta.Name)
+	if _, err := os.Stat(newBuildPath); err == nil {
+		utils.LogSection(os.Stdout, "Cleaning %s", newBuildPath)
+		os.RemoveAll(newBuildPath)
+	}
+	// Also clean legacy per-package build directory (transitional)
+	oldBuildPath := filepath.Join(pkg.Path, "build")
+	if _, err := os.Stat(oldBuildPath); err == nil {
+		utils.LogSection(os.Stdout, "Cleaning %s", oldBuildPath)
+		os.RemoveAll(oldBuildPath)
 	}
 }
 
