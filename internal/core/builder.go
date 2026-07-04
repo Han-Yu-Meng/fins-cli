@@ -337,11 +337,32 @@ func CompilePackageStream(ctx context.Context, pkgName string, rawWriter io.Writ
 	}
 
 	sdkPath := utils.ExpandPath(viper.GetString("build.defaults.sdk_path"))
-	binDir := utils.ExpandPath(viper.GetString("build.defaults.build_output"))
+	globalDir := utils.ExpandPath(viper.GetString("build.defaults.build_output"))
+
+	// Determine output directory: workspace packages → <ws>/install/<pkg>,
+	// global (GitHub) packages → ~/.fins/install/<pkg>
+	type LocalSource struct {
+		Name string `mapstructure:"name"`
+		Path string `mapstructure:"path"`
+	}
+	var localSources []LocalSource
+	viper.UnmarshalKey("local_packages", &localSources)
+	wsPathMap := make(map[string]string)
+	for _, src := range localSources {
+		wsPathMap[src.Name] = src.Path
+	}
 
 	workspaceRoot := findWorkspaceRoot(pkg.Path)
 	if workspaceRoot == "" {
 		workspaceRoot = filepath.Dir(pkg.Path)
+	}
+
+	// lib output directory: structured as <base>/<pkg_name>/
+	var libOutputDir string
+	if wsPath, ok := wsPathMap[pkg.Source]; ok {
+		libOutputDir = filepath.Join(wsPath, "install", pkg.Meta.Name, "lib")
+	} else {
+		libOutputDir = filepath.Join(globalDir, pkg.Meta.Name, "lib")
 	}
 	buildDir := filepath.Join(workspaceRoot, "build", pkg.Meta.Name)
 	if err := os.MkdirAll(buildDir, 0755); err != nil {
@@ -403,7 +424,7 @@ macro(fins_add_node _target)
     )
     target_compile_definitions(${_target} PRIVATE FMT_HEADER_ONLY FINS_NODE)
     set_target_properties(${_target} PROPERTIES 
-        OUTPUT_NAME "${PKG_SOURCE}_${_target}"
+        OUTPUT_NAME "${_target}"
         POSITION_INDEPENDENT_CODE ON
         INSTALL_RPATH "%[7]s;%[7]s/lib;%[8]s"
     )
@@ -418,7 +439,7 @@ add_compile_definitions(PKG_SOURCE="${FINS_META_SOURCE}")
 add_subdirectory("%[6]s" "${CMAKE_BINARY_DIR}/node_build")
 
 if(TARGET ${FINS_META_NAME})
-    set_target_properties(${FINS_META_NAME} PROPERTIES OUTPUT_NAME "${FINS_META_SOURCE}_${FINS_META_NAME}")
+    set_target_properties(${FINS_META_NAME} PROPERTIES OUTPUT_NAME "${FINS_META_NAME}")
 endif()
 `, cmakePrefixPath, preLoadDeps.String(), wslSanitizeLogic, link_ros_dependencies, sdkPath, pkg.Path, installDir, cmakeRpath)
 
@@ -438,7 +459,7 @@ endif()
 		"-B", buildDir,
 		"-S", buildDir,
 		"-G", viper.GetString("build.defaults.cmake_generator"),
-		fmt.Sprintf("-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=%s", binDir),
+		fmt.Sprintf("-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=%s", libOutputDir),
 		fmt.Sprintf("-DCMAKE_BUILD_TYPE=%s", buildType),
 		fmt.Sprintf("-DFINS_META_NAME=%s", pkg.Meta.Name),
 		fmt.Sprintf("-DFINS_META_VERSION=%s", pkg.Meta.Version),

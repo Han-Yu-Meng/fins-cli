@@ -30,11 +30,28 @@ func RunInspect(pkgName string) (string, error) {
 		return "", err
 	}
 
-	binDir := utils.ExpandPath(viper.GetString("build.defaults.build_output"))
+	// Build structured path: <base>/<pkg>/lib/lib<pkg>.so
+	soName := fmt.Sprintf("lib%s.so", targetPkg.Meta.Name)
 
-	soName := fmt.Sprintf("lib%s_%s.so", targetPkg.Source, targetPkg.Meta.Name)
-	soPath := filepath.Join(binDir, soName)
+	type LocalSource struct {
+		Name string `mapstructure:"name"`
+		Path string `mapstructure:"path"`
+	}
+	var localSources []LocalSource
+	viper.UnmarshalKey("local_packages", &localSources)
 
+	var baseDir string
+	for _, src := range localSources {
+		if src.Name == targetPkg.Source {
+			baseDir = filepath.Join(src.Path, "install")
+			break
+		}
+	}
+	if baseDir == "" {
+		baseDir = utils.ExpandPath(viper.GetString("build.defaults.build_output"))
+	}
+
+	soPath := filepath.Join(baseDir, targetPkg.Meta.Name, "lib", soName)
 	return RunInspectFile(soPath)
 }
 

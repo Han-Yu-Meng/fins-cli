@@ -16,16 +16,11 @@ import (
 )
 
 type AgentConfig struct {
-	LogLevel  int         `json:"log_level"`
-	Plugins   []PluginReq `json:"plugins"`
-	AgentName string      `json:"agent_name"`
-	AgentIP   string      `json:"agent_ip"`
-	AgentPort int         `json:"agent_port"`
-}
-
-type PluginReq struct {
-	Name   string `json:"name"`
-	Source string `json:"source"`
+	LogLevel   int      `json:"log_level"`
+	Workspaces []string `json:"workspaces"`
+	AgentName  string   `json:"agent_name"`
+	AgentIP    string   `json:"agent_ip"`
+	AgentPort  int      `json:"agent_port"`
 }
 
 type AgentInstance struct {
@@ -157,7 +152,6 @@ func (ag *AgentInstance) Start(cfg AgentConfig, debug bool, stdout *os.File, hea
 		"--name", cfg.AgentName,
 		"--ip", cfg.AgentIP,
 		"--port", fmt.Sprintf("%d", cfg.AgentPort),
-		"--load-all",
 		"--terminal-log", "false",
 		"--perf",
 	}
@@ -188,12 +182,9 @@ func (ag *AgentInstance) Start(cfg AgentConfig, debug bool, stdout *os.File, hea
 		env = append(env, "LD_LIBRARY_PATH="+binDir)
 	}
 
-	for _, p := range cfg.Plugins {
-		soName := fmt.Sprintf("lib%s_%s.so", p.Source, p.Name)
-		soPath := utils.ExpandPath(filepath.Join(binDir, soName))
-		if _, err := os.Stat(soPath); err == nil {
-			args = append(args, "--plugin", soPath)
-		}
+	// Add workspace paths from config
+	for _, ws := range cfg.Workspaces {
+		args = append(args, "--workspace", ws)
 	}
 
 	fullCmd := agentBin + " " + strings.Join(args, " ")

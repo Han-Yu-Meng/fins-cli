@@ -13,6 +13,7 @@ import (
 	"fins-cli/internal/utils"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -59,11 +60,25 @@ var agentDebugCmd = &cobra.Command{
 }
 
 func runAgentLocal(debug bool) {
+	// Read workspace paths from config
+	type LocalSource struct {
+		Name string `mapstructure:"name"`
+		Path string `mapstructure:"path"`
+	}
+	var localSources []LocalSource
+	viper.UnmarshalKey("local_packages", &localSources)
+
+	var workspacePaths []string
+	for _, src := range localSources {
+		workspacePaths = append(workspacePaths, src.Path)
+	}
+
 	cfg := agent.AgentConfig{
-		AgentName: agentName,
-		AgentIP:   agentIP,
-		AgentPort: agentPort,
-		LogLevel:  1,
+		AgentName:  agentName,
+		AgentIP:    agentIP,
+		AgentPort:  agentPort,
+		LogLevel:   1,
+		Workspaces: workspacePaths,
 	}
 
 	err := agent.GlobalManager.Start(cfg, debug, os.Stdout, agentHeaptrack)
