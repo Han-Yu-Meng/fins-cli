@@ -375,8 +375,8 @@ var workspaceCaptureCmd = &cobra.Command{
 				return filepath.SkipDir
 			}
 
-			// Found package.yaml - this is a fins package
-			if !d.IsDir() && d.Name() == "package.yaml" {
+			// Found package.yaml or package.xml - this is a valid package
+			if !d.IsDir() && (d.Name() == "package.yaml" || d.Name() == "package.xml") {
 				repoDir := filepath.Dir(path)
 
 				// Check if it's a git repo
@@ -436,7 +436,7 @@ var workspaceCaptureCmd = &cobra.Command{
 		})
 
 		if len(repos) == 0 {
-			utils.LogWarning(os.Stdout, "No valid fins packages found in workspace.")
+			utils.LogWarning(os.Stdout, "No valid packages found in workspace.")
 			return
 		}
 

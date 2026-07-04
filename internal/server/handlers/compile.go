@@ -47,6 +47,35 @@ func CompilePackage(c *gin.Context) {
 	}
 }
 
+func CompileWorkspace(c *gin.Context) {
+	var body struct {
+		Workspace string `json:"workspace"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.Workspace == "" {
+		c.JSON(400, gin.H{"error": "workspace path is required"})
+		return
+	}
+
+	rawMw, flusher := InitStreamResponse(c)
+
+	logPath := filepath.Join(core.GetLogDir(), "workspace_build.log")
+	logFile, _ := os.Create(logPath)
+	defer logFile.Close()
+
+	baseMw := io.MultiWriter(logFile, rawMw)
+	mw := NewFlushableMultiWriter(baseMw, flusher)
+
+	err := core.CompileWorkspace(c.Request.Context(), body.Workspace, mw)
+	if err != nil {
+		if c.Request.Context().Err() != nil {
+			fmt.Fprintf(mw, "\n[INFO] Workspace build cancelled by user\n")
+			return
+		}
+		errMsg := fmt.Sprintf("\n[ERROR] Workspace Build Failed: %v\n", err)
+		mw.Write([]byte(errMsg))
+	}
+}
+
 func CleanBuilds(c *gin.Context) {
 	var body struct {
 		Target    string `json:"target"`    // package name

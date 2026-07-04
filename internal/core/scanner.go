@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/xml"
 	"fins-cli/internal/types"
 	"fmt"
 	"os"
@@ -10,6 +11,29 @@ import (
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
+
+type ros2Maintainer struct {
+	Name  string `xml:",chardata"`
+	Email string `xml:"email,attr"`
+}
+
+type ros2PackageXML struct {
+	XMLName      xml.Name         `xml:"package"`
+	Format       string           `xml:"format,attr"`
+	Name         string           `xml:"name"`
+	Version      string           `xml:"version"`
+	Description  string           `xml:"description"`
+	Maintainer   []ros2Maintainer `xml:"maintainer"`
+	License      []string         `xml:"license"`
+	Depend       []string         `xml:"depend"`
+	BuildDep     []string         `xml:"build_depend"`
+	BuildToolDep []string         `xml:"buildtool_depend"`
+	ExecDep      []string         `xml:"exec_depend"`
+	TestDep      []string         `xml:"test_depend"`
+	Export       struct {
+		BuildType string `xml:"build_type"`
+	} `xml:"export"`
+}
 
 func ScanPackages() (map[string]*types.Package, error) {
 	pkgs := make(map[string]*types.Package)
@@ -67,9 +91,21 @@ func ScanPackages() (map[string]*types.Package, error) {
 
 			if !d.IsDir() && d.Name() == "package.yaml" {
 				pkgPath := filepath.Dir(path)
-				pkg := LoadPackage(pkgPath, path)
+				pkg := LoadFinsPackage(pkgPath, path)
 				if pkg != nil {
 					pkg.Source = sourceName
+					pkg.Type = types.PackageTypeFins
+					rawPkgs[pkg.Meta.Name] = append(rawPkgs[pkg.Meta.Name], pkg)
+				}
+				return filepath.SkipDir
+			}
+
+			if !d.IsDir() && d.Name() == "package.xml" {
+				pkgPath := filepath.Dir(path)
+				pkg := LoadROS2Package(pkgPath, path)
+				if pkg != nil {
+					pkg.Source = sourceName
+					pkg.Type = types.PackageTypeROS2
 					rawPkgs[pkg.Meta.Name] = append(rawPkgs[pkg.Meta.Name], pkg)
 				}
 				return filepath.SkipDir
@@ -88,7 +124,7 @@ func ScanPackages() (map[string]*types.Package, error) {
 	return pkgs, nil
 }
 
-func LoadPackage(path, metaPath string) *types.Package {
+func LoadFinsPackage(path, metaPath string) *types.Package {
 	var config struct {
 		Package types.PackageMetadata `yaml:"package"`
 	}
@@ -109,6 +145,7 @@ func LoadPackage(path, metaPath string) *types.Package {
 	p := &types.Package{
 		Path: path,
 		Meta: config.Package,
+		Type: types.PackageTypeFins,
 	}
 
 	if _, err := os.Stat(filepath.Join(path, "README.md")); err == nil {
@@ -125,7 +162,78 @@ func LoadPackage(path, metaPath string) *types.Package {
 	return p
 }
 
+func LoadROS2Package(path, metaPath string) *types.Package {
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		return nil
+	}
+
+	var xmlPkg ros2PackageXML
+	if err := xml.Unmarshal(data, &xmlPkg); err != nil {
+		return nil
+	}
+
+	if xmlPkg.Name == "" {
+		return nil
+	}
+
+	meta := types.PackageMetadata{
+		Name:        xmlPkg.Name,
+		Version:     xmlPkg.Version,
+		Description: xmlPkg.Description,
+		Licenses:    xmlPkg.License,
+		Depends:     make(map[string]string),
+	}
+
+	for _, m := range xmlPkg.Maintainer {
+		meta.Maintainers = append(meta.Maintainers, struct {
+			Name  string `yaml:"name" json:"name"`
+			Email string `yaml:"email" json:"email"`
+		}{
+			Name:  strings.TrimSpace(m.Name),
+			Email: m.Email,
+		})
+	}
+
+	// Collect all dependencies as system-level (they are ROS2/system packages)
+	for _, dep := range xmlPkg.Depend {
+		meta.Depends[dep] = "system"
+	}
+	for _, dep := range xmlPkg.BuildDep {
+		meta.Depends[dep] = "system"
+	}
+	for _, dep := range xmlPkg.BuildToolDep {
+		meta.Depends[dep] = "system"
+	}
+	for _, dep := range xmlPkg.ExecDep {
+		meta.Depends[dep] = "system"
+	}
+
+	p := &types.Package{
+		Path: path,
+		Meta: meta,
+		Type: types.PackageTypeROS2,
+	}
+
+	if _, err := os.Stat(filepath.Join(path, "README.md")); err == nil {
+		p.ReadmePath = filepath.Join(path, "README.md")
+	}
+
+	p.Status = checkBuildStatus(p)
+	return p
+}
+
+// LoadPackage is kept for backward compatibility with existing callers.
+func LoadPackage(path, metaPath string) *types.Package {
+	return LoadFinsPackage(path, metaPath)
+}
+
 func checkBuildStatus(p *types.Package) types.BuildStatus {
+	// ROS2 packages use colcon's build system — skip source-based staleness check
+	if p.Type == types.PackageTypeROS2 {
+		return types.StatusUncompiled
+	}
+
 	binDir := viper.GetString("build_output")
 	soName := fmt.Sprintf("lib%s_%s.so", p.Source, p.Meta.Name)
 	soPath := filepath.Join(binDir, soName)

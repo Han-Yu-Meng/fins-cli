@@ -16,6 +16,7 @@ func SetupRoutes(r *gin.Engine) {
 	r.POST("/api/install", handlers.InstallPlugin)
 
 	// 编译 API
+	r.POST("/api/build-workspace", handlers.CompileWorkspace)
 	r.POST("/api/build/*name", handlers.CompilePackage)
 	r.POST("/api/clean", handlers.CleanBuilds)
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -278,6 +279,11 @@ func CompilePackageStream(ctx context.Context, pkgName string, rawWriter io.Writ
 		return fmt.Errorf("package %s not found", pkgName)
 	}
 
+	// ROS2/colcon packages use colcon build (which handles its own deps)
+	if pkg.Type == types.PackageTypeROS2 {
+		return compileROS2Package(ctx, pkg, rawWriter)
+	}
+
 	if err := SolveDependencies(ctx, pkg, rawWriter, false); err != nil {
 		return err
 	}
@@ -505,6 +511,189 @@ endif()
 
 	elapsed := time.Since(startTime)
 	utils.LogSuccess(rawWriter, "Build Completed Successfully! (%.1fs)", elapsed.Seconds())
+	return nil
+}
+
+// CompileWorkspace builds all packages in a workspace, handling mixed fins+ros2 workspaces.
+// It first builds fins native packages, then runs colcon build for ROS2 packages,
+// inheriting preset configuration for colcon args.
+func CompileWorkspace(ctx context.Context, workspacePath string, writer io.Writer) error {
+	// Scan all packages
+	allPkgs, err := ScanPackages()
+	if err != nil {
+		return fmt.Errorf("failed to scan packages: %v", err)
+	}
+
+	// Filter by workspace path
+	var finsPkgs []*types.Package
+	var ros2Pkgs []*types.Package
+	for _, pkg := range allPkgs {
+		rel, err := filepath.Rel(workspacePath, pkg.Path)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			switch pkg.Type {
+			case types.PackageTypeROS2:
+				ros2Pkgs = append(ros2Pkgs, pkg)
+			default:
+				finsPkgs = append(finsPkgs, pkg)
+			}
+		}
+	}
+
+	if len(finsPkgs) == 0 && len(ros2Pkgs) == 0 {
+		return fmt.Errorf("no packages found in workspace: %s", workspacePath)
+	}
+
+	utils.LogSection(writer, "Workspace build: %d fins + %d ros2 packages", len(finsPkgs), len(ros2Pkgs))
+
+	// If there are ROS2 packages, add COLCON_IGNORE to fins package dirs
+	// so colcon doesn't try to build them
+	var colconIgnoreDirs []string
+	if len(ros2Pkgs) > 0 && len(finsPkgs) > 0 {
+		utils.LogInfo(writer, "Adding COLCON_IGNORE markers to %d fins package(s)...", len(finsPkgs))
+		for _, pkg := range finsPkgs {
+			ignoreFile := filepath.Join(pkg.Path, "COLCON_IGNORE")
+			if err := os.WriteFile(ignoreFile, []byte{}, 0644); err != nil {
+				// Clean up any already-created ignore files on failure
+				for _, d := range colconIgnoreDirs {
+					os.Remove(filepath.Join(d, "COLCON_IGNORE"))
+				}
+				return fmt.Errorf("failed to create COLCON_IGNORE in %s: %v", pkg.Path, err)
+			}
+			colconIgnoreDirs = append(colconIgnoreDirs, pkg.Path)
+		}
+		// Ensure cleanup after build completes
+		defer func() {
+			utils.LogInfo(writer, "Removing COLCON_IGNORE markers...")
+			for _, d := range colconIgnoreDirs {
+				os.Remove(filepath.Join(d, "COLCON_IGNORE"))
+			}
+		}()
+	}
+
+	// Phase 1: Build all fins native packages
+	for _, pkg := range finsPkgs {
+		fullName := fmt.Sprintf("%s/%s", pkg.Source, pkg.Meta.Name)
+		utils.LogSection(writer, "Building fins package: %s", fullName)
+		if err := CompilePackageStream(ctx, fullName, writer); err != nil {
+			return fmt.Errorf("fins package '%s' build failed: %v", fullName, err)
+		}
+	}
+
+	// Phase 2: Run colcon build for ROS2 packages
+	if len(ros2Pkgs) > 0 {
+		utils.LogSection(writer, "Running colcon build for %d ROS2 package(s)...", len(ros2Pkgs))
+		if err := runColconBuild(ctx, workspacePath, writer, ""); err != nil {
+			return fmt.Errorf("colcon build failed: %v", err)
+		}
+		utils.LogSuccess(writer, "colcon build completed successfully")
+	}
+
+	utils.LogSuccess(writer, "Workspace build completed")
+	return nil
+}
+
+// compileROS2Package builds a single ROS2 package using colcon from its workspace root.
+func compileROS2Package(ctx context.Context, pkg *types.Package, writer io.Writer) error {
+	workspaceRoot := findWorkspaceRoot(pkg.Path)
+	if workspaceRoot == "" {
+		return fmt.Errorf("could not determine workspace root for ROS2 package: %s", pkg.Meta.Name)
+	}
+
+	utils.LogSection(writer, "Building ROS2 package %s with colcon...", pkg.Meta.Name)
+	return runColconBuild(ctx, workspaceRoot, writer, pkg.Meta.Name)
+}
+
+// findWorkspaceRoot walks up from pkgPath to find the registered workspace root.
+func findWorkspaceRoot(pkgPath string) string {
+	type LocalSource struct {
+		Name string `mapstructure:"name"`
+		Path string `mapstructure:"path"`
+	}
+	var localSources []LocalSource
+	if err := viper.UnmarshalKey("local_packages", &localSources); err != nil {
+		return ""
+	}
+	for _, src := range localSources {
+		rel, err := filepath.Rel(src.Path, pkgPath)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			return src.Path
+		}
+	}
+	return ""
+}
+
+// runColconBuild executes colcon build with inherited preset configuration.
+// If pkgName is non-empty, --packages-select is added to build a single package.
+func runColconBuild(ctx context.Context, workspacePath string, writer io.Writer, pkgName string) error {
+	args := []string{"build"}
+
+	// If building a single package, use --packages-select
+	if pkgName != "" {
+		args = append(args, "--packages-select", pkgName)
+	}
+
+	// Inherit presets
+	currentPreset := viper.GetString("build.default_preset")
+	presetKey := fmt.Sprintf("build.presets.%s", currentPreset)
+
+	buildType := viper.GetString(presetKey + ".build_type")
+	if buildType == "" {
+		buildType = "Release"
+	}
+
+	cmakeArgs := []string{
+		fmt.Sprintf("-DCMAKE_BUILD_TYPE=%s", buildType),
+	}
+
+	presetCmakeArgs := viper.GetStringSlice(presetKey + ".cmake_args")
+	cmakeArgs = append(cmakeArgs, presetCmakeArgs...)
+
+	// Use console_direct+ for unfiltered colcon output
+	args = append(args, "--event-handlers", "console_direct+")
+
+	// Use a single --cmake-args followed by all cmake args
+	args = append(args, "--cmake-args")
+
+	// Add cmake generator from config
+	cmakeGenerator := viper.GetString("build.defaults.cmake_generator")
+	if cmakeGenerator != "" {
+		args = append(args, fmt.Sprintf("-G%s", cmakeGenerator))
+	}
+
+	args = append(args, cmakeArgs...)
+
+	// Add parallel workers
+	buildJobs := viper.GetString("build.defaults.build_jobs")
+	if buildJobs != "" {
+		args = append(args, "--parallel-workers", buildJobs)
+	}
+
+	utils.LogInfo(writer, "colcon %s", strings.Join(args, " "))
+
+	// Source the SDK setup.bash so colcon/CMake can find finevision and other dependencies
+	sdkInstallDir := utils.ExpandPath("~/.fins/sdk/install")
+	setupScript := filepath.Join(sdkInstallDir, "setup.bash")
+	// Shell-quote each argument to preserve spaces in cmake flags
+	quotedArgs := make([]string, len(args))
+	for i, a := range args {
+		quotedArgs[i] = strconv.Quote(a)
+	}
+	shellCmd := fmt.Sprintf("source %s && colcon %s", strconv.Quote(setupScript), strings.Join(quotedArgs, " "))
+
+	cmd := exec.CommandContext(ctx, "bash", "-c", shellCmd)
+	cmd.Dir = workspacePath
+
+	// Use direct writer so colcon's own formatting is preserved
+	cmd.Stdout = writer
+	cmd.Stderr = writer
+
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return err
+	}
+
 	return nil
 }
 

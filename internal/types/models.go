@@ -10,6 +10,13 @@ const (
 	StatusFailed     BuildStatus = "Failed"
 )
 
+type PackageType string
+
+const (
+	PackageTypeFins PackageType = "fins"
+	PackageTypeROS2 PackageType = "ros2"
+)
+
 type DependencyRecipe struct {
 	Type          string   `yaml:"type" json:"type"`
 	SystemPackage string   `yaml:"system_pkg" json:"system_pkg"`
@@ -45,6 +52,7 @@ type Package struct {
 	IconPath   string          `json:"icon_path"`
 	Status     BuildStatus     `json:"status"`
 	Source     string          `json:"source"`
+	Type       PackageType     `json:"type"`
 }
 
 type PackageDetails struct {
@@ -61,6 +69,7 @@ type PackageInfo struct {
 	Maintainer  string      `json:"maintainer"`
 	Source      string      `json:"source"`
 	IconPath    string      `json:"icon_path"`
+	Type        PackageType `json:"type"`
 }
 
 type CompileRequest struct {

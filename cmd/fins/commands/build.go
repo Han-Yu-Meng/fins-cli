@@ -200,6 +200,31 @@ var buildCmd = &cobra.Command{
 				return
 			}
 
+			// Check if this is a mixed workspace (contains ROS2 packages)
+			hasROS2 := false
+			for _, p := range pkgs {
+				if p.Type == "ros2" {
+					hasROS2 = true
+					break
+				}
+			}
+
+			// For mixed workspaces, use the workspace build endpoint
+			// which orchestrates fins + colcon builds
+			if hasROS2 && workspacePath != "" {
+				body := map[string]string{"workspace": workspacePath}
+				data, _ := json.Marshal(body)
+				url := fmt.Sprintf("%s/api/build-workspace", DaemonURL)
+				resp, err := http.Post(url, "application/json", bytes.NewBuffer(data))
+				if err != nil {
+					utils.LogError(os.Stdout, "Failed to connect to daemon: %v", err)
+					return
+				}
+				defer resp.Body.Close()
+				client.StreamResponse(resp.Body)
+				return
+			}
+
 			n := len(pkgs)
 			type taskState struct {
 				status    string

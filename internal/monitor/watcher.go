@@ -136,7 +136,7 @@ func (pw *PackageWatcher) handleEvent(event fsnotify.Event) {
 		}
 	}
 
-	if strings.HasSuffix(event.Name, "package.yaml") {
+	if strings.HasSuffix(event.Name, "package.yaml") || strings.HasSuffix(event.Name, "package.xml") {
 		if event.Op&fsnotify.Write == fsnotify.Write ||
 			event.Op&fsnotify.Create == fsnotify.Create ||
 			event.Op&fsnotify.Rename == fsnotify.Rename ||
@@ -232,6 +232,7 @@ func (pw *PackageWatcher) GetPackages() []types.PackageInfo {
 			Maintainer:  getMaintainer(p),
 			Source:      p.Source,
 			IconPath:    p.IconPath,
+			Type:        p.Type,
 		})
 	}
 	return list
