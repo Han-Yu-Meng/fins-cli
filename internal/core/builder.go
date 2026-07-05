@@ -804,19 +804,25 @@ add_subdirectory("%[3]s" "${CMAKE_BINARY_DIR}/sdk_build")
 
 if(EXISTS "%[4]s")
     add_executable(%[1]s "%[4]s")
-    
+
     # Force whole archive to ensure all symbols (singletons, etc) are baked into the binary
     # and ready to be exported via -rdynamic for plugins.
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-        target_link_libraries(%[1]s PRIVATE 
-            -Wl,--whole-archive fins_sdk -Wl,--no-whole-archive 
+        target_link_libraries(%[1]s PRIVATE
+            -Wl,--whole-archive fins_sdk -Wl,--no-whole-archive
             ${CMAKE_DL_LIBS}
             Threads::Threads
         )
     else()
         target_link_libraries(%[1]s PRIVATE fins_sdk ${CMAKE_DL_LIBS})
     endif()
-    
+
+    # Optional ROS2 linking (needed by ros2_manager.hpp at the executable level)
+    find_package(rclcpp QUIET)
+    if(rclcpp_FOUND)
+        target_link_libraries(%[1]s PRIVATE rclcpp::rclcpp)
+    endif()
+
     set_target_properties(%[1]s PROPERTIES ENABLE_EXPORTS ON)
 else()
     message(FATAL_ERROR "Source file not found at: %[4]s")
