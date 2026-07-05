@@ -180,9 +180,14 @@ RECIPE_URL="${GH_PROXY}https://raw.githubusercontent.com/$GITHUB_USER/$GITHUB_RE
 if run_as_user "test -f $FINS_DIR/config.yaml"; then
     log_info "config.yaml already exists, skipping (preserving user config)."
 else
-    run_as_user "wget -q $CONFIG_URL -O $FINS_DIR/config.yaml"
-    log_info "config.yaml created from default."
+    if run_as_user "wget $CONFIG_URL -O $FINS_DIR/config.yaml"; then
+        log_info "config.yaml created from default."
+    else
+        log_warn "Failed to download config.yaml, using fallback or creating empty file."
+        run_as_user "touch $FINS_DIR/config.yaml"
+    fi
 fi
+
 run_as_user "wget -q $RECIPE_URL -O $FINS_DIR/recipes.yaml"
 
 # 修正权限 (如果是 root 运行但 REAL_USER 不是 root)
